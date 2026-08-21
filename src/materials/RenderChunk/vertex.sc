@@ -2,7 +2,7 @@ $input a_color0, a_position, a_texcoord0, a_texcoord1
 #ifdef INSTANCING
   $input i_data0, i_data1, i_data2, i_data3
 #endif
-$output v_color0, v_color1, v_fog, v_refl, v_texcoord0, v_lightmapUV, v_extra
+$output v_color0, v_color1, v_fog, v_refl, v_texcoord0, v_lightmapUV, v_extra, v_position, v_env
 
 #include <bgfx_shader.sh>
 #include <newb/main.sh>
@@ -61,26 +61,15 @@ void main() {
   vec3 bPos = fract(cPos);
   vec3 tiledCpos = fract(cPos*0.0625);
 
-  // bit 16 for dithering??
-  // bit 15-1 for texture mapping
-  // uvec2 a16 = uvec2(round(a_texcoord0 * 65535.0));
-  // vec2 uv0 = vec2((a16 & uvec2(32767u)) << uvec2(1)) / 65535.0;
-  // uv0 += (2.0*vec2((a16 & uvec2(32768u)) >> uvec2(15)) - 1.0) / 32768.0;
   vec2 uv0 = 2.0*a_texcoord0.xy;
   uv0 = fract(uv0) + ((floor(uv0)-0.5)/16384.0);
 
-  // bit 16 for dithering / mask tint
-  // bits 15-9 for ??
-  // bits 8-5 for x, bits 4-1 for y
-  // uvec2 a16 = uvec2(round(a_texcoord1 * 65535.0));
-  // vec2 uv1 = vec2(uvec2(a16.y >> 4u, a16.y) & uvec2(15u)) * vec2(0.06666667);
   vec2 uv1 = fract(a_texcoord1.y*vec2(256.0, 4096.0));
   vec2 lit = uv1*uv1;
 
   bool isColored = color.r != color.g || color.r != color.b;
   float shade = isColored ? color.g*1.5 : color.g;
 
-  // tree leaves detection
   #if defined(ALPHA_TEST) && !defined(RENDER_AS_BILLBOARDS)
     bool isTree = (isColored && (bPos.x+bPos.y+bPos.z < 0.001)) || color.a == 0.0;
   #else
@@ -90,14 +79,10 @@ void main() {
   nl_environment env = nlDetectEnvironment(DimensionID.x, TimeOfDay.x, Day.x, FogColor.rgb, FogAndDistanceControl.xyz);
   nl_skycolor skycol = nlSkyColors(env);
 
-  // time
   highp float t = ViewPositionAndTime.w;
 
-  // convert color space to linear-space
   #ifdef SEASONS
     isTree = true;
-
-    // season tree leaves are colored in fragment
     color.w *= color.w;
     color = vec4(color.www, 1.0);
   #else
@@ -106,14 +91,13 @@ void main() {
     }
   #endif
 
-  vec3 torchColor; // modified by nl_lighting
+  vec3 torchColor;
   vec3 light = nlLighting(s_LightMapTexture, skycol, env, worldPos, torchColor, a_color0.rgb, uv1, lit, isTree, shade, t, FogAndDistanceControl.z, TimeOfDay.x, CameraPosition.xyz);
 
   #if defined(ALPHA_TEST) && (defined(NL_PLANTS_WAVE) || defined(NL_LANTERN_WAVE)) && !defined(RENDER_AS_BILLBOARDS)
     nlWave(worldPos, light, env.rainFactor, uv1, lit, uv0, bPos, a_color0, cPos, tiledCpos, t, s_MatTexture, isColored, camDis, isTree);
   #endif
 
-  // loading chunks
   relativeDist += RenderChunkFogAlpha.x;
 
   vec4 fogColor;
@@ -124,7 +108,6 @@ void main() {
   #endif
 
   if (env.nether) {
-    // blend fog with void color
     fogColor.rgb = colorCorrectionInv(FogColor.rgb);
   }
 
@@ -188,6 +171,8 @@ void main() {
   v_color0 = color;
   v_color1 = a_color0;
   v_fog = fogColor;
+  v_position = worldPos;
+  v_env = env;
 
   #else
 
